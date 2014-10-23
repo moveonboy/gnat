@@ -1,0 +1,227 @@
+function newgroupspecies = bracketSpeciesList(listofSpecies)
+% newnlinkedpath = clone(listofspecies);
+% allThespecies  = newnlinkedpath.theSpecies;
+
+% first step: group the glycans based on the composition
+groupspecies    = classifyglycans(listofSpecies);
+% second step: group the complex glycans based on the branch length
+newgroupspecies = classifycomplexnglycan(groupspecies);
+% third step: create the bracket based on list of glycans
+newgroupspecies = buildbracketspecies(newgroupspecies);
+end 
+
+function newgroupspecies = buildbracketspecies(newgroupspecies)
+   for i = 1 : length(newgroupspecies)
+       if(~newgroupspecies(i,1).singlespec)
+           glycanspecieslistinithgroup = newgroupspecies(i,1).glycanspecies;
+           if(newgroupspecies(i,1).numbranch==2)
+               [bracketspecies,corestruct]=createBiAntennaryBracket(glycanspecieslistinithgroup);
+           elseif(newgroupspecies(i,1).numbranch==3)
+               [bracketspecies,corestruct]=createTriAntennaryBracket(glycanspecieslistinithgroup);
+           elseif(newgroupspecies(i,1).numbranch==4)   
+               [bracketspecies,corestruct]=createTetriAntennaryBracket(glycanspecieslistinithgroup);
+           end
+           newgroupspecies(i,1).bracketspecies = bracketspecies;
+           newgroupspecies(i,1).corestruct     = corestruct;
+       end
+   end
+end
+
+function [bracketspecies,corestruct] = createBiAntennaryBracket(glycanspecieslistinithgroup)
+   if(length(glycanspecieslistinithgroup)~=2) 
+      error('MATLAB:GNAT:ERRORLIST','THE NUMBER OF SPECIES SHOULD BE EQUALT TO 2');        
+   end
+   glycanspecies1 = glycanspecieslistinithgroup(1,1);
+   glycanspecies2 = glycanspecieslistinithgroup(2,1);
+   
+   nonredendresidues_species1 =  glycanspecies1.glycanStruct.getNonRedEndResidue;
+   for i = 1: length(nonredendresidues_species1)
+      ithnredendres = nonredendresidues_species1{i};
+      if(~strcmpi(ithnredendres.residueType.name,'Fuc')) 
+          branches_species1{i} = glycanspecies1.glycanStruct.getresiduetoroot(ithnredendres);
+          branchspecies1depth(i) = glycanspecies1.glycanStruct.getBranchDepth(ithnredendres);           
+      end
+   end
+   
+   nonredendresidues_species2 =  glycanspecies2.glycanStruct.getNonRedEndResidue;   
+   for i = 1: length(nonredendresidues_species2)
+      ithnredendres = nonredendresidues_species2{i}; 
+      branches_species2{i} = glycanspecies2.glycanStruct.getresiduetoroot(ithnredendres);
+      branchspecies2depth(i) = glycanspecies2.glycanStruct.getBranchDepth(ithnredendres); 
+   end
+   
+   % check if two branches are the same    
+   
+   % take 1 species
+   branchdepthdiff = branchspecies1depth(1)-branchspecies1depth(2);
+   if(branchdepthdiff>0)
+       longerbranchnum = 1;
+   else
+       longerbranchnum = 2;       
+   end
+   
+   % create core structure
+   corestruct = glycanspecies1.clone;
+   nonredendresidues_species1 =  corestruct.glycanStruct.getNonRedEndResidue;    
+   longerbranchnonredendresidue = nonredendresidues_species1{longerbranchnum};
+   for i = 1 : abs(branchdepthdiff)-1
+       parentresidue = longerbranchnonredendresidue.getLinkageParent.getParent;
+       longerbranchnonredendresidue = parentresidue;
+   end
+   residuestoremove = longerbranchnonredendresidue;
+   corestruct.glycanStruct.removeResidueObj(residuestoremove);
+
+    % create 
+    bracketspecies = glycanspecies1.clone;
+    nonredendresidues_species1 =  bracketspecies.glycanStruct.getNonRedEndResidue;    
+    longerbranchnonredendresidue = nonredendresidues_species1{longerbranchnum};
+    for i = 1 : abs(branchdepthdiff)-1
+       parentresidue = longerbranchnonredendresidue.getLinkageParent.getParent;
+       longerbranchnonredendresidue = parentresidue;
+    end
+    residuestobracket = longerbranchnonredendresidue;
+    bracketspecies.glycanStruct.bracketResidue(residuestobracket);    
+end
+
+
+function newgroupspecies = classifycomplexnglycan(groupspecies)
+newcounter    = 0;
+newgroupspecies  = struct('composition',[],'glycanspecies',[],'spectype',[],'numbranch',[],...
+                       'corestruct',[],'bracketspecies',[],'singlespec',[],'glycandepth',[],'speciesindex',[]);
+for i = 1 : length(groupspecies)
+    if(~groupspecies(i,1).singlespec)
+        subsetgroupspecies = createSusbsetGroups(groupspecies(i,1));
+        for j = 1 : length(subsetgroupspecies)
+             newcounter = newcounter +1; 
+             newgroupspecies(newcounter,1)=subsetgroupspecies(j,1);
+        end
+    else
+        newcounter = newcounter +1; 
+        newgroupspecies(newcounter,1)=groupspecies(i,1);
+    end
+end
+end
+
+function subsetgroupspecies = createSusbsetGroups(ithgroupspecies)
+ subsetgroupspecies = struct('composition',[],'glycanspecies',[],'spectype',[],'numbranch',[],...
+                      'corestruct',[],'bracketspecies',[],'singlespec',[],'glycandepth',[],'speciesindex',[]);
+ counter = 0;
+for i =1  : length(ithgroupspecies.glycanspecies) 
+  ithspecies        =  ithgroupspecies.glycanspecies(i,1);
+  complexglycantype =  ithspecies.glycanStruct.iscomplex;
+  if(~complexglycantype.complex)
+      error('MATLAB:GNAT:ERRORNONCOMPLEX','NONCOMPLEX GLYCAN SELECTED');
+  end
+  isnewgroup = 1;
+  numbranches = complexglycantype.branchnum;  
+  glycandepth = ithspecies.glycanStruct.getDepth;
+  if(numbranches == 2) % biantennary
+     for ii = 1 : length(subsetgroupspecies) 
+        if(subsetgroupspecies(ii,1).glycandepth==glycandepth)
+           subsetgroupspecies(ii,1).glycanspecies = [subsetgroupspecies(ii,1).glycanspecies;...
+               ithspecies];
+           subsetgroupspecies(ii,1).speciesindex = [subsetgroupspecies(ii,1).speciesindex;...
+               ithgroupspecies.speciesindex(i)];
+           subsetgroupspecies(ii,1).singlespec = 0;    
+           isnewgroup = 0;
+           break;
+        end        
+     end 
+     
+     if(isnewgroup)
+        counter=counter+1;
+        subsetgroupspecies(counter).numbranch     = numbranches;
+        subsetgroupspecies(counter).speciesindex  = ithgroupspecies.speciesindex(i);
+        subsetgroupspecies(counter).glycandepth   = glycandepth;
+        subsetgroupspecies(counter).glycanspecies = ithspecies;
+        subsetgroupspecies(counter).singlespec    = 1;
+        subsetgroupspecies(counter).composition   = ithgroupspecies.composition; 
+        subsetgroupspecies(counter).spectype      = ithgroupspecies.spectype;  
+     end
+     
+  elseif(numbranches == 3) % triantennary
+      
+  elseif(numbranches == 4) % tetraantennary   
+      
+  end  
+end
+
+end
+
+
+function groupspecies = classifyglycans(listofSpecies)
+groupspecies  = struct('composition',[],'glycanspecies',[],'spectype',[],'numbranch',[],...
+                       'corestruct',[],'bracketspecies',[],'singlespec',[],'glycandepth',[],'speciesindex',[]);
+counter = 0;
+for i = 1 : length(listofSpecies)
+   ithspecies     = listofSpecies{i,1};
+   ithspeciescomp = ithspecies.glycanStruct.getComposition;
+   
+   % high mannose, each struct is considered a single group
+   if(ithspecies.glycanStruct.ishighmannose)
+       counter = counter +1; 
+       groupspecies(counter,1).glycanspecies = ithspecies;
+       groupspecies(counter,1).composition   = ithspeciescomp;
+       groupspecies(counter,1).singlespec    = 1;
+       groupspecies(counter,1).spectype      = 'highman';
+       groupspecies(counter,1).speciesindex  = i;
+       continue;
+   end
+   
+   % hybrid, each struct is considered as a single group
+   if(ithspecies.glycanStruct.ishybrid)
+       counter = counter +1; 
+       groupspecies(counter,1).glycanspecies  = ithspecies;
+       groupspecies(counter,1).composition    = ithspeciescomp;
+       groupspecies(counter,1).bracketspecies = [];
+       groupspecies(counter,1).singlespec     = 1;
+       groupspecies(counter,1).spectype       = 'hybrid';
+       groupspecies(counter,1).speciesindex   = i;
+       continue; 
+   end
+   
+   complextype = ithspecies.glycanStruct.iscomplex;
+   if(complextype.complex==-1)
+       counter = counter +1; 
+       groupspecies(counter,1).glycanspecies  = ithspecies;
+       groupspecies(counter,1).composition    = ithspeciescomp;
+       groupspecies(counter,1).bracketspecies = [];
+       groupspecies(counter,1).singlespec     = 1;
+       groupspecies(counter,1).spectype       = 'complex precursor';
+       groupspecies(counter,1).numbranch      = complextype.branchnum;
+       groupspecies(counter,1).speciesindex  = i;
+       continue; 
+   end
+   
+   % if the composition is the same
+   hasgroup = 0;
+   for j = 1 : length(groupspecies)
+      if(strcmpi(groupspecies(j,1).spectype,'complex precursor')|| ...
+         strcmpi(groupspecies(j,1).spectype,'hybrid')|| ...
+         strcmpi(groupspecies(j,1).spectype,'highman'))
+         continue;
+      end
+      
+      if(isequal(groupspecies(j,1).composition,ithspeciescomp))
+          groupspecies(j,1).glycanspecies = [groupspecies(j,1).glycanspecies;ithspecies];
+          groupspecies(j,1).glycandepth   = [groupspecies(j,1).glycandepth;ithspecies.glycanStruct.getDepth];
+          groupspecies(j,1).speciesindex  = [groupspecies(j,1).speciesindex;i];
+          groupspecies(j,1).singlespec    = 0;
+          hasgroup = 1;
+      end
+   end
+   
+   if(~hasgroup)
+       counter = counter +1; 
+       groupspecies(counter,1).glycanspecies  = ithspecies;
+       groupspecies(counter,1).glycandepth    = ithspecies.glycanStruct.getDepth;
+       groupspecies(counter,1).composition    = ithspeciescomp;
+       groupspecies(counter,1).bracketspecies = [];
+       groupspecies(counter,1).singlespec     = 1;
+       groupspecies(counter,1).spectype       = 'complex';
+       groupspecies(counter,1).numbranch      = complextype.branchnum;
+       groupspecies(counter,1).speciesindex  =  i;
+   end
+end
+end
+
